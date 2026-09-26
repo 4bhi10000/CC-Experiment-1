@@ -213,8 +213,3 @@ The main learning points are:
 5. Repeated trials would improve the reliability of the comparison.
 
 ---
-
-**Student Name:** __________________________  
-**USN:** _________________________________  
-**Date:** _________________________________  
-**Faculty Signature:** ______________________
