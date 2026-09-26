@@ -1,192 +1,237 @@
-# CC-Experiment_01: Performance Analysis of Type-1 and Type-2 Hypervisors
+# Cloud Computing – Experiment 1
+## CPU Performance Study Using Type-1 and Type-2 Virtualization
 
-![Course](https://img.shields.io/badge/Course-Cloud%20Computing%20%2F%20Computer%20Networks-blue.svg)
-![Benchmark](https://img.shields.io/badge/Benchmark-Sysbench%20CPU%2020k%20Primes-green.svg)
+This repository contains the work for **Cloud Computing Experiment 1**. The experiment uses the same Ubuntu workload on two different virtualization setups and compares their CPU benchmark behaviour.
 
-## Summary
+The two environments considered are:
 
-This repository documents a lab study comparing CPU performance on a **Type-1 (bare-metal) hypervisor, Proxmox VE**, and a **Type-2 (hosted) hypervisor, VMware Workstation**. It contains the setup steps, raw benchmark results, charts, and the written analysis.
+- **Proxmox VE** – Type-1 / bare-metal virtualization
+- **VMware Workstation** – Type-2 / hosted virtualization
 
-An Ubuntu VM with identical specs (2 vCPUs, 2 GB RAM, 20 GB disk) was created on each platform, and the `sysbench` prime-number CPU test (`--cpu-max-prime=20000`) was run on both under the same conditions.
-
-> **Headline result:** Proxmox VE reached 1,716.69 events/sec against 1,364.78 on VMware Workstation, about 25.8% more throughput, with 20.55% lower average latency.
-
-## Contents
-
-1. [Objectives](#1-objectives)
-2. [Architecture](#2-architecture)
-3. [VM Specifications](#3-vm-specifications)
-4. [Procedure](#4-procedure)
-5. [Results](#5-results)
-6. [Analysis](#6-analysis)
-7. [Conclusion](#7-conclusion)
-8. [Repository Layout and Reproduction](#8-repository-layout-and-reproduction)
+The CPU workload is generated with **Sysbench** using a maximum prime value of `20000`. The comparison focuses on throughput and latency rather than treating one hypervisor as universally faster than the other.
 
 ---
 
-## 1. Objectives
+## 1. What This Experiment Investigates
 
-1. **Deploy** two matching Ubuntu VMs on different hypervisor designs: Proxmox VE (Type-1, KVM-based) and VMware Workstation Pro on a Windows host (Type-2).
-2. **Keep resources equal** so the comparison is fair.
-3. **Benchmark** CPU virtualization efficiency using `sysbench` with primes up to 20,000.
-4. **Collect metrics:** run time, total events, throughput, and latency (min, avg, 95th percentile, max).
-5. **Measure overhead:** determine what the host-OS layer under a Type-2 hypervisor costs compared with running directly on hardware.
+The experiment was carried out to observe how the virtualization layer can affect a CPU-bound workload.
+
+The main tasks were:
+
+1. Create an Ubuntu virtual machine on Proxmox VE.
+2. Create a comparable Ubuntu virtual machine in VMware Workstation.
+3. Keep the important VM resources approximately the same.
+4. Run the same Sysbench CPU test in both environments.
+5. Record the benchmark output and compare the measurements.
+6. Use the results to understand the practical difference between Type-1 and Type-2 virtualization.
 
 ---
 
-## 2. Architecture
+## 2. Experimental Setup
 
-The two setups differ in one key way: a Type-2 hypervisor has a full host operating system between it and the hardware.
+### Type-1 environment
 
-```mermaid
-graph TB
-    subgraph T1["Type-1: Proxmox VE"]
-        direction TB
-        G1["Ubuntu VM"] --> H1["Proxmox VE (Linux + KVM)"] --> HW1["Physical hardware"]
-    end
-    subgraph T2["Type-2: VMware Workstation"]
-        direction TB
-        G2["Ubuntu VM"] --> H2["VMware Workstation (application)"] --> OS2["Windows host OS"] --> HW2["Physical hardware"]
-    end
+```text
+Physical Computer
+       │
+       ▼
+   Proxmox VE
+       │
+       ▼
+    Ubuntu VM
+       │
+       ▼
+    Sysbench
 ```
 
-- **Type-1:** Proxmox VE runs directly on the machine. Its KVM-enabled Linux kernel is the hypervisor, and guest instructions execute on the CPU through Intel VT-x / AMD-V.
-- **Type-2:** VMware Workstation is an ordinary application. Guest CPU requests go through VMware's virtual machine monitor, are translated into host OS calls, and are scheduled by the Windows NT kernel before reaching the hardware.
+### Type-2 environment
 
----
-
-## 3. VM Specifications
-
-| Parameter | Proxmox VE (Type-1) | VMware Workstation (Type-2) |
-| :--- | :--- | :--- |
-| **VM name** | `CC-Experiment1-type1` | `CC-Experiment1-Type2` |
-| **VM identifier** | `VMID 123` | `janzz-virtual-machine` |
-| **Guest OS** | Ubuntu 24.04.3 LTS (AMD64) | Ubuntu Linux 64-bit |
-| **vCPUs** | 2 (1 socket, 2 cores) | 2 (1 processor, 2 cores) |
-| **CPU model** | `x86-64-v2-AES` | Host passthrough / default |
-| **RAM** | 2048 MiB | 2048 MB |
-| **Virtual disk** | 20 GB | 20 GB |
-| **Network** | VirtIO (`vmbr0`) | NAT (`VMnet8`) |
-| **Benchmark tool** | `sysbench 1.0.20` | `sysbench 1.0.20` |
-
----
-
-## 4. Procedure
-
-### Step 1: Create the VMs
-
-**Proxmox VE (Type-1)**
-- Opened `https://10.11.0.252:8006` in a browser and started the `Create VM` wizard (VM ID `123`, name `CC-Experiment1-type1`).
-- Attached the Ubuntu 24.04 ISO and assigned 2 cores, 2048 MiB RAM, a 20 GB VirtIO disk, and the `vmbr0` bridge.
-- Completed the Ubuntu installation.
-
-**VMware Workstation (Type-2)**
-- Opened VMware Workstation on the Windows host and chose the `Typical` path.
-- Selected the Ubuntu ISO, named the VM `CC-Experiment1-Type2`, and set a 20 GB disk.
-- Configured 1 processor with 2 cores, 2 GB RAM, and a NAT adapter, then completed the installation.
-
-### Step 2: Check the Configuration
-
-Run inside each guest before benchmarking:
-
-```bash
-hostnamectl   # hostname and architecture
-lscpu         # CPU topology
-free -h       # memory
-df -h         # disk capacity
-top           # live load
+```text
+Physical Computer
+       │
+       ▼
+    Windows OS
+       │
+       ▼
+ VMware Workstation
+       │
+       ▼
+    Ubuntu VM
+       │
+       ▼
+    Sysbench
 ```
 
-### Step 3: Install and Run Sysbench
+The important architectural difference is that VMware Workstation runs on top of a general-purpose host operating system, while Proxmox VE is installed directly on the machine and uses KVM-based virtualization.
+
+---
+
+## 3. VM Configuration
+
+The two test VMs were configured with comparable resources so that the benchmark comparison would not be dominated by different VM sizes.
+
+| Configuration | Proxmox VE | VMware Workstation |
+|---|---|---|
+| Guest OS | Ubuntu 24.04.x 64-bit | Ubuntu Linux 64-bit |
+| vCPUs | 2 | 2 |
+| Memory | 2 GB | 2 GB |
+| Disk | 20 GB | 20 GB |
+| CPU workload | Sysbench CPU | Sysbench CPU |
+| Prime limit | 20,000 | 20,000 |
+
+Other VM-specific settings such as virtual networking and disk-controller configuration were selected according to the respective hypervisor environment.
+
+---
+
+## 4. Benchmark Procedure
+
+Before running the benchmark, the guest system was checked using common Linux commands:
 
 ```bash
-sudo apt update && sudo apt install sysbench -y
-sysbench --version
+hostnamectl
+lscpu
+free -h
+df -h
+top
+```
+
+Sysbench was installed with:
+
+```bash
+sudo apt update
+sudo apt install sysbench -y
+```
+
+The CPU test used for both VMs was:
+
+```bash
 sysbench cpu --cpu-max-prime=20000 run
 ```
 
+The same benchmark command was used in both environments to keep the workload consistent.
+
 ---
 
-## 5. Results
+## 5. Recorded Results
 
-### Benchmark Output
+The benchmark runs produced the following measurements:
 
-| Proxmox VE (Type-1) | VMware Workstation (Type-2) |
-| :---: | :---: |
-| ![Proxmox VE Sysbench output](images/1.png) | ![VMware Workstation Sysbench output](images/2.png) |
+| Metric | Proxmox VE | VMware Workstation |
+|---|---:|---:|
+| Run time | 10.0004 s | 10.0007 s |
+| Total events | 17,169 | 13,650 |
+| Events/sec | 1,716.69 | 1,364.78 |
+| Minimum latency | 0.57 ms | 0.67 ms |
+| Average latency | 0.58 ms | 0.73 ms |
+| 95th percentile latency | 0.65 ms | 0.89 ms |
+| Maximum latency | 2.78 ms | 4.06 ms |
 
-### Measured Values
+### Throughput observation
 
-| Metric | Proxmox VE (Type-1) | VMware Workstation (Type-2) | Difference |
-| :--- | :---: | :---: | :---: |
-| **Run time** | 10.0004 s | 10.0007 s | ~0.003% |
-| **Total events** | **17,169** | 13,650 | +3,519 (+25.78%) |
-| **Events/sec** | **1,716.69** | 1,364.78 | +351.91 (+25.79%) |
-| **Min latency** | **0.57 ms** | 0.67 ms | −0.10 ms (−14.93%) |
-| **Avg latency** | **0.58 ms** | 0.73 ms | −0.15 ms (−20.55%) |
-| **95th percentile latency** | **0.65 ms** | 0.89 ms | −0.24 ms (−26.97%) |
-| **Max latency** | **2.78 ms** | 4.06 ms | −1.28 ms (−31.53%) |
+For this particular run, the Proxmox VM completed more CPU events during the fixed benchmark interval. The difference in events per second was:
 
-Bold marks the better value in each row. Throughput and total events are better when higher; all latency figures are better when lower.
+```text
+1716.69 - 1364.78 = 351.91 events/sec
+```
 
-### Charts
+This corresponds to approximately **25.8% higher measured throughput relative to the VMware result**.
 
-Throughput and latency are shown below. The total-events figure follows the same ratio as throughput because the test window is fixed, so it is not charted separately.
+### Latency observation
 
-![CPU throughput comparison](images/events_per_second_comparison.png)
+The measured average latency was lower in the Proxmox run. The 95th-percentile and maximum values also show a difference between the two test environments.
+
+These values describe this experiment and configuration; they should not be interpreted as a universal performance ratio for all Proxmox and VMware installations.
+
+---
+
+## 6. Result Visualizations
+
+### CPU throughput
+
+![Events per second](images/events_per_second_comparison.png)
+
+### Latency measurements
 
 ![Latency comparison](images/latency_comparison.png)
 
----
+### Total completed events
 
-## 6. Analysis
+![Total events](images/total_events_comparison.png)
 
-Proxmox VE outperformed VMware Workstation on this CPU-bound workload for three main reasons.
+### Overall view
 
-**Virtualization overhead.** Proxmox VE uses Linux KVM with the Intel VT-x / AMD-V extensions, so guest instructions run with very little hypervisor interference. VMware Workstation handles privileged guest operations twice: once in VMware's virtual machine monitor and again in the Windows kernel through user-to-kernel transitions (`NtSystemService`).
-
-**Scheduling.** On Proxmox VE, each vCPU is a normal Linux thread managed by the Completely Fair Scheduler. On VMware Workstation, the guest competes with Windows background activity such as Windows Defender, update services, and the Desktop Window Manager. Host preemption produces latency spikes, which is why max latency was 4.06 ms on VMware versus 2.78 ms on Proxmox.
-
-**Memory translation.** Proxmox VE relies on hardware-assisted address translation (EPT / NPT). A Type-2 setup adds cost along the path Guest Physical → Host Virtual → Host Physical address.
+![Performance dashboard](images/overall_performance_dashboard.png)
 
 ---
 
-## 7. Conclusion
+## 7. Interpretation
 
-1. **Bare metal is faster:** Proxmox VE delivered about 25.8% higher CPU throughput and 20.55% lower average latency.
-2. **Response times are steadier:** the 95th percentile latency was 0.65 ms versus 0.89 ms, which matters for latency-sensitive systems.
-3. **Where to use each:**
-   - **Type-1 (Proxmox VE, KVM, ESXi):** cloud data centers, production infrastructure, database servers, and high-performance computing.
-   - **Type-2 (VMware Workstation, VirtualBox):** local development, testing, desktop sandboxes, and teaching labs.
+A few factors can contribute to the difference observed in the benchmark:
+
+- **Virtualization architecture:** Proxmox VE uses KVM and hardware-assisted virtualization, while VMware Workstation operates within the host OS environment.
+- **Host scheduling:** A hosted VM shares host resources with the Windows operating system and its background processes.
+- **System configuration:** CPU model, power settings, background processes, memory pressure and other host settings can influence benchmark results.
+- **Run-to-run variation:** A single benchmark execution is not enough to establish a general performance ranking. Repeating the experiment would provide a stronger statistical comparison.
+
+Therefore, the useful conclusion from this lab is the **measured behaviour of the two configured test environments**, rather than a claim that one virtualization technology is always better.
 
 ---
 
-## 8. Repository Layout and Reproduction
+## 8. Repository Contents
 
 ```text
-Cloud_computing/
-├── README.md                # Project overview (this file)
-├── LAB_REPORT.md            # Formal lab report for submission
-├── images/                  # Screenshots and charts
-│   ├── 1.png                # Proxmox VE Sysbench screenshot
-│   ├── 2.png                # VMware Workstation Sysbench screenshot
+CC-Experiment-1/
+│
+├── README.md
+├── LAB_REPORT.md
+│
+├── images/
+│   ├── 1.png
+│   ├── 2.png
 │   ├── events_per_second_comparison.png
-│   └── latency_comparison.png
+│   ├── latency_comparison.png
+│   ├── total_events_comparison.png
+│   ├── overall_performance_dashboard.png
+│   ├── part 1/
+│   └── part 2/
+│
 └── scripts/
-    ├── benchmark.sh         # Runs the Sysbench test
-    ├── generate_plots.py    # Builds the charts with Matplotlib
-    └── parse_sysbench.py    # Parses results and computes ratios
+    ├── benchmark.sh
+    ├── parse_sysbench.py
+    └── generate_plots.py
 ```
 
-To reproduce the experiment:
+### Script purpose
+
+- `benchmark.sh` – collects system information and runs the CPU benchmark.
+- `parse_sysbench.py` – works with the recorded benchmark values and calculates comparisons.
+- `generate_plots.py` – generates the performance graphs used in the report.
+
+---
+
+## 9. Reproducing the Test
+
+Inside each Ubuntu VM:
 
 ```bash
 chmod +x scripts/benchmark.sh
-./scripts/benchmark.sh              # run inside each VM
-python scripts/generate_plots.py    # generate charts
-python scripts/parse_sysbench.py    # parse and compare results
+./scripts/benchmark.sh
+```
+
+After collecting the required values, the Python scripts can be used to prepare the comparison figures.
+
+```bash
+python3 scripts/parse_sysbench.py
+python3 scripts/generate_plots.py
 ```
 
 ---
 
-*Conducted as a laboratory experiment for the Cloud Computing / Computer Networks course.*
+## 10. Learning Outcome
+
+This experiment helped in understanding the practical difference between hosted and bare-metal virtualization. It also provided experience with VM resource configuration, Linux system inspection, CPU benchmarking, result interpretation and presenting experimental data using Python-generated graphs.
+
+---
+
+**Course:** Cloud Computing / Computer Networks Laboratory  
+**Experiment:** 1 – Virtual Machine Performance Comparison
